@@ -490,14 +490,9 @@
             <input id="ocrCheckbox" type="checkbox" disabled>
             <strong>Aplicar OCR no restante</strong>
           </label>
-          <label class="option finish-option" title="Reduz o tamanho convertendo as paginas restantes para imagens otimizadas.">
+          <label class="option finish-option" title="Tenta reduzir o PDF restante preservando o conteudo original. Se ficar maior, salva a versao menor.">
             <input id="compressCheckbox" type="checkbox" disabled>
-            <strong>Comprimir</strong>
-            <select id="compressLevel" disabled aria-label="Nivel de compressao">
-              <option value="light">Leve</option>
-              <option value="medium" selected>Media</option>
-              <option value="strong">Forte</option>
-            </select>
+            <strong>Otimizar tamanho</strong>
           </label>
         </div>
       </div>
@@ -530,7 +525,6 @@
     const applyPagesButton = document.querySelector("#applyPagesButton");
     const ocrCheckbox = document.querySelector("#ocrCheckbox");
     const compressCheckbox = document.querySelector("#compressCheckbox");
-    const compressLevel = document.querySelector("#compressLevel");
     const pagesText = document.querySelector("#pagesText");
     const fileStatus = document.querySelector("#fileStatus");
     const sizeStatus = document.querySelector("#sizeStatus");
@@ -620,10 +614,6 @@
       showToast("Paginas selecionadas.");
     });
 
-    compressCheckbox.addEventListener("change", () => {
-      compressLevel.disabled = !compressCheckbox.checked || compressCheckbox.disabled;
-    });
-
     downloadButton.addEventListener("click", async () => {
       if (!sourceBytes || pageCount === 0) return;
       if (selectedPages.size === 0) {
@@ -638,11 +628,9 @@
       downloadButton.disabled = true;
       ocrCheckbox.disabled = true;
       compressCheckbox.disabled = true;
-      compressLevel.disabled = true;
       downloadButton.textContent = "Gerando...";
       const useOcr = ocrCheckbox.checked;
       const useCompression = compressCheckbox.checked;
-      const compressionLevel = compressLevel.value;
       const nextSourceName = `${sourceName}-restante`;
       const originalSize = sourceBytes.byteLength;
 
@@ -661,11 +649,6 @@
         });
 
         let outputPdf = remainingPdf;
-
-        if (useCompression) {
-          fileStatus.textContent = "Comprimindo PDF restante...";
-          outputPdf = await buildCompressedPdf(remainingPageNumbers, compressionLevel);
-        }
 
         if (useOcr) {
           downloadButton.textContent = "Aplicando OCR...";
@@ -688,11 +671,20 @@
 
           console.error("Falha ao salvar com OCR. Reconstruindo PDF restante sem OCR:", saveError);
           showToast("OCR deu erro ao salvar. Salvando PDF restante sem OCR.");
-          const fallbackPdf = useCompression
-            ? await buildCompressedPdf(remainingPageNumbers, compressionLevel)
-            : await PDFLib.PDFDocument.load(remainingBytes);
+          const fallbackPdf = await PDFLib.PDFDocument.load(remainingBytes);
           outputBytes = await fallbackPdf.save();
         }
+
+        if (useCompression) {
+          fileStatus.textContent = "Otimizando PDF restante...";
+          const optimizedBytes = await optimizePdfBytes(outputBytes);
+          if (optimizedBytes.byteLength <= outputBytes.byteLength) {
+            outputBytes = optimizedBytes;
+          } else {
+            showToast("A otimizacao ficaria maior. Salvei a menor versao.");
+          }
+        }
+
         updateSizeStatus({
           original: originalSize,
           remaining: remainingBytes.byteLength,
@@ -714,7 +706,6 @@
         updateSelection();
         ocrCheckbox.disabled = false;
         compressCheckbox.disabled = false;
-        compressLevel.disabled = !compressCheckbox.checked;
       }
     });
 
@@ -729,55 +720,12 @@
       return outputPdf;
     }
 
-    async function buildCompressedPdf(remainingPageNumbers, level) {
-      const settings = getCompressionSettings(level);
-      const pdf = await pdfjsLib.getDocument({ data: sourceBytes.slice(0) }).promise;
-      const outputPdf = await PDFLib.PDFDocument.create();
-
-      for (let index = 0; index < remainingPageNumbers.length; index += 1) {
-        const originalPageNumber = remainingPageNumbers[index];
-        fileStatus.textContent = `Comprimindo pagina ${index + 1}/${remainingPageNumbers.length}...`;
-        const page = await pdf.getPage(originalPageNumber);
-        const viewport = page.getViewport({ scale: 1 });
-        const canvas = await renderPageToCanvas(page, settings.scale);
-        const blob = await canvasToJpegBlob(canvas, settings.quality);
-        const imageBytes = await blob.arrayBuffer();
-        const image = await outputPdf.embedJpg(imageBytes);
-        const pdfPage = outputPdf.addPage([viewport.width, viewport.height]);
-
-        pdfPage.drawImage(image, {
-          x: 0,
-          y: 0,
-          width: viewport.width,
-          height: viewport.height,
-        });
-
-        canvas.width = 0;
-        canvas.height = 0;
-      }
-
-      return outputPdf;
-    }
-
-    function getCompressionSettings(level) {
-      const levels = {
-        light: { scale: 1.6, quality: 0.82 },
-        medium: { scale: 1.25, quality: 0.68 },
-        strong: { scale: 1, quality: 0.52 },
-      };
-
-      return levels[level] || levels.medium;
-    }
-
-    function canvasToJpegBlob(canvas, quality) {
-      return new Promise((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (blob) {
-            resolve(blob);
-          } else {
-            reject(new Error("Nao foi possivel comprimir a pagina."));
-          }
-        }, "image/jpeg", quality);
+    async function optimizePdfBytes(bytes) {
+      const pdf = await PDFLib.PDFDocument.load(bytes);
+      return pdf.save({
+        addDefaultPage: false,
+        objectsPerTick: 50,
+        useObjectStreams: true,
       });
     }
 
@@ -822,7 +770,6 @@
       pagesText.value = "";
       ocrCheckbox.checked = false;
       compressCheckbox.checked = false;
-      compressLevel.value = "medium";
       pagesGrid.replaceChildren();
       pagesGrid.hidden = true;
       emptyState.hidden = false;
@@ -1100,7 +1047,6 @@
       applyPagesButton.disabled = !enabled;
       ocrCheckbox.disabled = !enabled;
       compressCheckbox.disabled = !enabled;
-      compressLevel.disabled = true;
     }
 
     function reset() {
@@ -1116,7 +1062,6 @@
       pagesText.value = "";
       ocrCheckbox.checked = false;
       compressCheckbox.checked = false;
-      compressLevel.value = "medium";
       setControls(false);
       fileStatus.textContent = "Nenhum PDF aberto.";
       sizeStatus.textContent = "Tamanhos: aguardando PDF.";
