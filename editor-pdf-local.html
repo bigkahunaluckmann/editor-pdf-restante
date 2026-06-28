@@ -1,0 +1,1093 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Extrair paginas do PDF</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef2f6;
+      --panel: #ffffff;
+      --text: #111827;
+      --muted: #5d6b82;
+      --line: #cbd5e1;
+      --accent: #0f766e;
+      --accent-strong: #115e59;
+      --accent-soft: #d9f4f0;
+      --danger: #b42318;
+      --danger-soft: #fff1f0;
+      --ink: #0b1220;
+      --shadow: 0 18px 45px rgba(15, 23, 42, 0.1);
+      --radius: 8px;
+      --ease: cubic-bezier(.2, .8, .2, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(135deg, rgba(15, 118, 110, 0.08), transparent 32%),
+        repeating-linear-gradient(135deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 12px),
+        var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+    }
+
+    .skip-link {
+      position: absolute;
+      left: 16px;
+      top: 10px;
+      z-index: 30;
+      transform: translateY(-140%);
+      border-radius: var(--radius);
+      background: var(--ink);
+      color: #fff;
+      padding: 10px 12px;
+      font-weight: 800;
+      text-decoration: none;
+      transition: transform 160ms var(--ease);
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      border-bottom: 1px solid var(--line);
+      background: rgba(248, 250, 252, 0.96);
+      backdrop-filter: blur(8px);
+    }
+
+    header::before {
+      content: "";
+      display: block;
+      height: 4px;
+      background: repeating-linear-gradient(90deg, var(--accent) 0 36px, var(--ink) 36px 42px);
+    }
+
+    .bar {
+      display: grid;
+      grid-template-columns: minmax(190px, 1fr) auto;
+      gap: 16px;
+      align-items: center;
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 16px 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    button,
+    .file-button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--text);
+      padding: 9px 12px;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 160ms var(--ease), border-color 160ms var(--ease), box-shadow 160ms var(--ease), background 160ms var(--ease);
+    }
+
+    button:hover:not(:disabled),
+    .file-button:hover {
+      border-color: var(--accent);
+      box-shadow: 0 8px 18px rgba(15, 118, 110, 0.14);
+      transform: translateY(-1px);
+    }
+
+    button:focus-visible,
+    .file-button:focus-visible,
+    input:focus-visible {
+      outline: 3px solid rgba(15, 118, 110, 0.24);
+      outline-offset: 2px;
+    }
+
+    button.primary {
+      border-color: var(--accent-strong);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    input[type="file"] {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 22px 18px 36px;
+    }
+
+    .status {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow: var(--shadow);
+      padding: 12px;
+      font-size: 14px;
+    }
+
+    #fileStatus {
+      display: inline-flex;
+      align-items: center;
+      min-height: 36px;
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+      background: #f8fafc;
+      color: var(--ink);
+      padding: 8px 12px;
+      font-weight: 800;
+    }
+
+    .page-input {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .page-input > label:first-child {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .option {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease), background 160ms var(--ease);
+    }
+
+    .option:hover {
+      border-color: var(--accent);
+      box-shadow: 0 8px 18px rgba(15, 118, 110, 0.12);
+    }
+
+    .finish-options {
+      display: grid;
+      gap: 8px;
+      align-items: stretch;
+    }
+
+    .page-input > input {
+      width: 260px;
+      max-width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 8px 10px;
+      font: inherit;
+    }
+
+    .page-input .option input,
+    #ocrCheckbox,
+    #compressCheckbox {
+      flex: 0 0 auto;
+      width: 18px;
+      height: 18px;
+      min-height: 0;
+      max-width: 18px;
+      margin: 0;
+      padding: 0;
+      border-radius: 4px;
+      accent-color: var(--accent);
+    }
+
+    .finish-option {
+      gap: 10px;
+      border-color: rgba(15, 118, 110, 0.35);
+      background: linear-gradient(135deg, #ffffff, #eefcf8);
+      justify-content: flex-start;
+    }
+
+    .finish-option strong {
+      white-space: nowrap;
+    }
+
+    .finish-option select {
+      min-height: 28px;
+      border: 1px solid rgba(15, 118, 110, 0.35);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--accent-strong);
+      padding: 3px 8px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .finish-option:has(input:checked) {
+      border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.28), 0 8px 18px rgba(15, 118, 110, 0.12);
+    }
+
+    .empty {
+      display: grid;
+      min-height: 18vh;
+      place-items: center;
+      border: 1px dashed #94a3b8;
+      border-radius: var(--radius);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.94), rgba(255,255,255,0.86)),
+        repeating-linear-gradient(90deg, rgba(15, 118, 110, 0.08) 0 1px, transparent 1px 16px);
+      text-align: center;
+      padding: 24px;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease), transform 160ms var(--ease);
+    }
+
+    .empty:hover,
+    .empty.drag-over {
+      border-color: var(--accent);
+      box-shadow: 0 22px 55px rgba(15, 118, 110, 0.16);
+      transform: translateY(-1px);
+    }
+
+    .empty strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 22px;
+    }
+
+    .empty .drop-label {
+      margin-top: 12px;
+      color: var(--accent-strong);
+      font-size: 13px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 16px;
+    }
+
+    .page {
+      position: relative;
+      border: 2px solid transparent;
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      cursor: pointer;
+      overflow: hidden;
+      transition: transform 160ms var(--ease), border-color 160ms var(--ease), box-shadow 160ms var(--ease);
+    }
+
+    .page:hover {
+      transform: translateY(-2px);
+      border-color: rgba(15, 118, 110, 0.5);
+    }
+
+    .page.selected {
+      border-color: var(--danger);
+      background: var(--danger-soft);
+      box-shadow: 0 18px 40px rgba(180, 35, 24, 0.16);
+    }
+
+    .page canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #fff;
+    }
+
+    .page.selected::before {
+      content: "REMOVER";
+      position: absolute;
+      left: 8px;
+      top: 8px;
+      z-index: 2;
+      border-radius: 999px;
+      background: var(--danger);
+      color: #fff;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .02em;
+    }
+
+    .page-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 38px;
+      padding: 8px 9px;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+      font-weight: 700;
+      background: #f8fafc;
+    }
+
+    .badge {
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 12px;
+    }
+
+    .page.selected .badge {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      max-width: min(420px, calc(100vw - 36px));
+      border-radius: var(--radius);
+      background: var(--ink);
+      color: #fff;
+      padding: 12px 14px;
+      box-shadow: var(--shadow);
+      font-size: 14px;
+      opacity: 0;
+      transform: translateY(12px);
+      transition: 160ms ease;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 760px) {
+      .bar {
+        grid-template-columns: 1fr;
+      }
+
+      .status {
+        grid-template-columns: 1fr;
+      }
+
+      .actions {
+        justify-content: flex-start;
+      }
+
+      .grid {
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main">Pular para o editor</a>
+  <header>
+    <div class="bar">
+      <div>
+        <h1>Extrair paginas do PDF</h1>
+        <div class="subtitle">Clique para marcar ou desmarcar. Use Ctrl + clique para repetir a acao em um intervalo.</div>
+      </div>
+      <div class="actions">
+        <label class="file-button" for="fileInput">Abrir PDF</label>
+        <input id="fileInput" type="file" accept="application/pdf">
+        <button id="clearButton" type="button" disabled>Limpar selecao</button>
+        <button id="clearDocumentButton" type="button" disabled>Limpar documento</button>
+        <button id="downloadButton" class="primary" type="button" disabled>Salvar PDF restante</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="status" aria-live="polite">
+      <div id="fileStatus">Nenhum PDF aberto.</div>
+      <div class="page-input">
+        <label for="pagesText">Selecionar por numero:</label>
+        <input id="pagesText" type="text" placeholder="Ex: 1, 3-5, 8" disabled>
+        <button id="applyPagesButton" type="button" disabled>Aplicar</button>
+        <div class="finish-options">
+          <label class="option finish-option" title="Deixa o PDF final pesquisavel. Pode demorar em documentos grandes.">
+            <input id="ocrCheckbox" type="checkbox" disabled>
+            <strong>Aplicar OCR no restante</strong>
+          </label>
+          <label class="option finish-option" title="Reduz o tamanho convertendo as paginas restantes para imagens otimizadas.">
+            <input id="compressCheckbox" type="checkbox" disabled>
+            <strong>Comprimir</strong>
+            <select id="compressLevel" disabled aria-label="Nivel de compressao">
+              <option value="light">Leve</option>
+              <option value="medium" selected>Media</option>
+              <option value="strong">Forte</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section id="emptyState" class="empty">
+      <div>
+        <strong>Abra um PDF para comecar</strong>
+        <div>O arquivo e processado no seu navegador. Nada e enviado para fora.</div>
+        <div class="drop-label">Clique aqui ou solte um PDF</div>
+      </div>
+    </section>
+
+    <section id="pagesGrid" class="grid" hidden></section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="assets/pdf-lib.min.js"></script>
+  <script type="module">
+    import * as pdfjsLib from "./assets/pdf.min.mjs";
+    import Tesseract from "./assets/tesseract.esm.min.js";
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "./assets/pdf.worker.min.mjs";
+
+    const fileInput = document.querySelector("#fileInput");
+    const clearButton = document.querySelector("#clearButton");
+    const clearDocumentButton = document.querySelector("#clearDocumentButton");
+    const downloadButton = document.querySelector("#downloadButton");
+    const applyPagesButton = document.querySelector("#applyPagesButton");
+    const ocrCheckbox = document.querySelector("#ocrCheckbox");
+    const compressCheckbox = document.querySelector("#compressCheckbox");
+    const compressLevel = document.querySelector("#compressLevel");
+    const pagesText = document.querySelector("#pagesText");
+    const fileStatus = document.querySelector("#fileStatus");
+    const emptyState = document.querySelector("#emptyState");
+    const pagesGrid = document.querySelector("#pagesGrid");
+    const toast = document.querySelector("#toast");
+
+    let sourceBytes = null;
+    let sourceName = "pdf";
+    let pageCount = 0;
+    let selectedPages = new Set();
+    let anchorPage = null;
+    let anchorAction = "select";
+
+    fileInput.addEventListener("change", async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      await loadPdfFile(file);
+    });
+
+    emptyState.addEventListener("click", () => {
+      fileInput.click();
+    });
+
+    emptyState.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      emptyState.classList.add("drag-over");
+    });
+
+    emptyState.addEventListener("dragleave", () => {
+      emptyState.classList.remove("drag-over");
+    });
+
+    emptyState.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      emptyState.classList.remove("drag-over");
+      const file = Array.from(event.dataTransfer?.files || [])
+        .find((item) => item.type === "application/pdf" || item.name.toLowerCase().endsWith(".pdf"));
+
+      if (!file) {
+        showToast("Solte um arquivo PDF.");
+        return;
+      }
+
+      await loadPdfFile(file);
+    });
+
+    async function loadPdfFile(file) {
+      try {
+        reset();
+        sourceName = file.name.replace(/\.pdf$/i, "");
+        sourceBytes = await file.arrayBuffer();
+        fileStatus.textContent = "Carregando paginas...";
+        await renderPdf(sourceBytes);
+        setControls(true);
+        showToast("PDF carregado. Clique nas paginas que deseja remover.");
+      } catch (error) {
+        console.error(error);
+        reset();
+        showToast("Nao foi possivel abrir esse PDF.");
+      }
+    }
+
+    clearButton.addEventListener("click", () => {
+      selectedPages.clear();
+      updateSelection();
+      showToast("Selecao limpa.");
+    });
+
+    clearDocumentButton.addEventListener("click", () => {
+      reset();
+      fileInput.value = "";
+      showToast("Documento limpo.");
+    });
+
+    applyPagesButton.addEventListener("click", () => {
+      const parsed = parsePageList(pagesText.value, pageCount);
+      if (!parsed.ok) {
+        showToast(parsed.message);
+        return;
+      }
+
+      selectedPages = parsed.pages;
+      updateSelection();
+      showToast("Paginas selecionadas.");
+    });
+
+    compressCheckbox.addEventListener("change", () => {
+      compressLevel.disabled = !compressCheckbox.checked || compressCheckbox.disabled;
+    });
+
+    downloadButton.addEventListener("click", async () => {
+      if (!sourceBytes || pageCount === 0) return;
+      if (selectedPages.size === 0) {
+        showToast("Selecione pelo menos uma pagina para remover.");
+        return;
+      }
+      if (selectedPages.size === pageCount) {
+        showToast("Deixe pelo menos uma pagina no PDF final.");
+        return;
+      }
+
+      downloadButton.disabled = true;
+      ocrCheckbox.disabled = true;
+      compressCheckbox.disabled = true;
+      compressLevel.disabled = true;
+      downloadButton.textContent = "Gerando...";
+      const useOcr = ocrCheckbox.checked;
+      const useCompression = compressCheckbox.checked;
+      const compressionLevel = compressLevel.value;
+      const nextSourceName = `${sourceName}-restante`;
+
+      try {
+        const saveTarget = await requestSaveTarget(`${nextSourceName}.pdf`);
+        const inputPdf = await PDFLib.PDFDocument.load(sourceBytes);
+        const remainingIndexes = Array.from({ length: pageCount }, (_, index) => index)
+          .filter((index) => !selectedPages.has(index + 1));
+        const remainingPageNumbers = remainingIndexes.map((index) => index + 1);
+        const outputPdf = useCompression
+          ? await buildCompressedPdf(remainingPageNumbers, compressionLevel)
+          : await buildCopiedPdf(inputPdf, remainingIndexes);
+
+        if (useOcr) {
+          downloadButton.textContent = "Aplicando OCR...";
+          try {
+            const ocrStats = await applyOcrToPdf(outputPdf, remainingPageNumbers);
+            if (ocrStats.failedPages > 0) {
+              showToast(`PDF salvo com OCR parcial. ${ocrStats.failedPages} pagina(s) falharam.`);
+            }
+          } catch (error) {
+            console.error("OCR falhou, salvando PDF restante sem OCR:", error);
+            showToast("OCR falhou. Vou salvar o PDF restante sem OCR.");
+          }
+        }
+
+        let outputBytes;
+        try {
+          outputBytes = await outputPdf.save();
+        } catch (saveError) {
+          if (!useOcr) throw saveError;
+
+          console.error("Falha ao salvar com OCR. Reconstruindo PDF restante sem OCR:", saveError);
+          showToast("OCR deu erro ao salvar. Salvando PDF restante sem OCR.");
+          const fallbackPdf = useCompression
+            ? await buildCompressedPdf(remainingPageNumbers, compressionLevel)
+            : await buildCopiedPdf(inputPdf, remainingIndexes);
+          outputBytes = await fallbackPdf.save();
+        }
+
+        const blob = new Blob([outputBytes], { type: "application/pdf" });
+        await savePdf(blob, saveTarget);
+        await loadGeneratedPdf(outputBytes, nextSourceName);
+      } catch (error) {
+        if (error.name === "AbortError") {
+          showToast("Salvamento cancelado.");
+          return;
+        }
+        console.error(error);
+        showToast("Erro ao gerar o PDF restante.");
+      } finally {
+        downloadButton.textContent = "Salvar PDF restante";
+        updateSelection();
+        ocrCheckbox.disabled = false;
+        compressCheckbox.disabled = false;
+        compressLevel.disabled = !compressCheckbox.checked;
+      }
+    });
+
+    async function buildCopiedPdf(inputPdf, remainingIndexes) {
+      const outputPdf = await PDFLib.PDFDocument.create();
+      const copiedPages = await outputPdf.copyPages(inputPdf, remainingIndexes);
+
+      for (const page of copiedPages) {
+        outputPdf.addPage(page);
+      }
+
+      return outputPdf;
+    }
+
+    async function buildCompressedPdf(remainingPageNumbers, level) {
+      const settings = getCompressionSettings(level);
+      const pdf = await pdfjsLib.getDocument({ data: sourceBytes.slice(0) }).promise;
+      const outputPdf = await PDFLib.PDFDocument.create();
+
+      for (let index = 0; index < remainingPageNumbers.length; index += 1) {
+        const originalPageNumber = remainingPageNumbers[index];
+        fileStatus.textContent = `Comprimindo pagina ${index + 1}/${remainingPageNumbers.length}...`;
+        const page = await pdf.getPage(originalPageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        const canvas = await renderPageToCanvas(page, settings.scale);
+        const blob = await canvasToJpegBlob(canvas, settings.quality);
+        const imageBytes = await blob.arrayBuffer();
+        const image = await outputPdf.embedJpg(imageBytes);
+        const pdfPage = outputPdf.addPage([viewport.width, viewport.height]);
+
+        pdfPage.drawImage(image, {
+          x: 0,
+          y: 0,
+          width: viewport.width,
+          height: viewport.height,
+        });
+
+        canvas.width = 0;
+        canvas.height = 0;
+      }
+
+      return outputPdf;
+    }
+
+    function getCompressionSettings(level) {
+      const levels = {
+        light: { scale: 1.6, quality: 0.82 },
+        medium: { scale: 1.25, quality: 0.68 },
+        strong: { scale: 1, quality: 0.52 },
+      };
+
+      return levels[level] || levels.medium;
+    }
+
+    function canvasToJpegBlob(canvas, quality) {
+      return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error("Nao foi possivel comprimir a pagina."));
+          }
+        }, "image/jpeg", quality);
+      });
+    }
+
+    async function requestSaveTarget(suggestedName) {
+      if ("showSaveFilePicker" in window) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: [{
+            description: "Arquivo PDF",
+            accept: { "application/pdf": [".pdf"] },
+          }],
+        });
+        return { handle, suggestedName, type: "picker" };
+      }
+
+      return { suggestedName, type: "download" };
+    }
+
+    async function savePdf(blob, target) {
+      if (target.type === "picker") {
+        const writable = await target.handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        showToast("PDF restante salvo.");
+        return;
+      }
+
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = target.suggestedName;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      showToast("Seu navegador baixou o PDF na pasta padrao.");
+    }
+
+    async function loadGeneratedPdf(bytes, name) {
+      sourceBytes = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      sourceName = name;
+      selectedPages.clear();
+      anchorPage = null;
+      anchorAction = "select";
+      pagesText.value = "";
+      ocrCheckbox.checked = false;
+      compressCheckbox.checked = false;
+      compressLevel.value = "medium";
+      pagesGrid.replaceChildren();
+      pagesGrid.hidden = true;
+      emptyState.hidden = false;
+      fileInput.value = "";
+      fileStatus.textContent = "Carregando PDF restante...";
+      await renderPdf(sourceBytes);
+      setControls(true);
+      updateSelection();
+      showToast("PDF restante carregado como novo documento.");
+    }
+
+    async function applyOcrToPdf(outputPdf, remainingPageNumbers) {
+      if (!Tesseract?.createWorker) {
+        throw new Error("Tesseract.js nao carregou.");
+      }
+
+      const pdf = await pdfjsLib.getDocument({ data: sourceBytes.slice(0) }).promise;
+      const font = await outputPdf.embedFont(PDFLib.StandardFonts.Helvetica);
+      const stats = { processedPages: 0, failedPages: 0, insertedWords: 0 };
+      const ocrProgress = {
+        currentPage: 0,
+        totalPages: remainingPageNumbers.length,
+        pagesLeft: remainingPageNumbers.length,
+      };
+      const worker = await Tesseract.createWorker("por+eng", 1, {
+        workerPath: "./assets/tesseract.worker.min.js",
+        corePath: "https://cdn.jsdelivr.net/npm/tesseract.js-core@v5.0.0",
+        langPath: "https://tessdata.projectnaptha.com/4.0.0",
+        workerBlobURL: false,
+        logger: (event) => updateOcrStatus(event, ocrProgress),
+        errorHandler: (error) => {
+          console.error("Erro no OCR:", error);
+          showToast("Erro no OCR. Veja o console do navegador.");
+        },
+      });
+
+      try {
+        for (let index = 0; index < remainingPageNumbers.length; index += 1) {
+          const originalPageNumber = remainingPageNumbers[index];
+          ocrProgress.currentPage = index + 1;
+          ocrProgress.pagesLeft = remainingPageNumbers.length - index - 1;
+          fileStatus.textContent = formatOcrStatus(ocrProgress);
+
+          try {
+            const page = await pdf.getPage(originalPageNumber);
+            const canvas = await renderPageToCanvas(page, 2);
+            const result = await worker.recognize(canvas);
+            const insertedWords = addInvisibleTextLayer(outputPdf.getPage(index), result.data.words || [], canvas, font);
+            stats.processedPages += 1;
+            stats.insertedWords += insertedWords;
+            canvas.width = 0;
+            canvas.height = 0;
+          } catch (error) {
+            stats.failedPages += 1;
+            console.error(`OCR falhou na pagina ${originalPageNumber}:`, error);
+          }
+        }
+      } finally {
+        await worker.terminate();
+      }
+
+      return stats;
+    }
+
+    async function renderPageToCanvas(page, scale) {
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      await page.render({ canvasContext: context, viewport }).promise;
+      return canvas;
+    }
+
+    function addInvisibleTextLayer(pdfPage, words, canvas, font) {
+      const { width: pageWidth, height: pageHeight } = pdfPage.getSize();
+      let insertedWords = 0;
+
+      for (const word of words) {
+        const text = normalizeOcrText(word.text);
+        const bbox = word.bbox;
+        if (!text || !bbox) continue;
+
+        const x = (bbox.x0 / canvas.width) * pageWidth;
+        const y = pageHeight - (bbox.y1 / canvas.height) * pageHeight;
+        const boxHeight = ((bbox.y1 - bbox.y0) / canvas.height) * pageHeight;
+        const size = Math.max(4, Math.min(18, boxHeight * 0.86));
+
+        try {
+          pdfPage.drawText(text, {
+            x,
+            y,
+            size,
+            font,
+            color: PDFLib.rgb(1, 1, 1),
+            opacity: 0.01,
+          });
+          insertedWords += 1;
+        } catch (error) {
+          console.warn("Palavra ignorada pelo OCR por incompatibilidade com PDF:", text, error);
+        }
+      }
+
+      return insertedWords;
+    }
+
+    function normalizeOcrText(text) {
+      return String(text || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[\u0000-\u001f\u007f]/g, "")
+        .replace(/[^\x20-\x7e]/g, "")
+        .trim();
+    }
+
+    function updateOcrStatus(event, progress) {
+      if (!event || event.status !== "recognizing text") return;
+      const percent = Math.round((event.progress || 0) * 100);
+      fileStatus.textContent = formatOcrStatus(progress, percent);
+    }
+
+    function formatOcrStatus(progress, percent = null) {
+      const percentText = percent === null ? "" : ` (${percent}%)`;
+      return `OCR pagina ${progress.currentPage}/${progress.totalPages}${percentText}. Faltam ${progress.pagesLeft}.`;
+    }
+
+    async function renderPdf(bytes) {
+      const loadingTask = pdfjsLib.getDocument({ data: bytes.slice(0) });
+      const pdf = await loadingTask.promise;
+      pageCount = pdf.numPages;
+      emptyState.hidden = true;
+      pagesGrid.hidden = false;
+
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 0.28 });
+        const pageButton = document.createElement("button");
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        const footer = document.createElement("div");
+        const pageLabel = document.createElement("span");
+        const badge = document.createElement("span");
+
+        pageButton.type = "button";
+        pageButton.className = "page";
+        pageButton.dataset.page = String(pageNumber);
+        pageButton.setAttribute("aria-pressed", "false");
+        pageButton.setAttribute("aria-label", `Selecionar pagina ${pageNumber} para remover`);
+
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+
+        footer.className = "page-footer";
+        pageLabel.textContent = `Pagina ${pageNumber}`;
+        badge.className = "badge";
+        badge.textContent = "Fica";
+        footer.append(pageLabel, badge);
+
+        pageButton.append(canvas, footer);
+        pageButton.addEventListener("click", (event) => selectPage(pageNumber, event));
+        pagesGrid.appendChild(pageButton);
+
+        await page.render({ canvasContext: context, viewport }).promise;
+        fileStatus.textContent = `${sourceName}.pdf - ${pageNumber}/${pageCount} paginas carregadas`;
+      }
+
+      fileStatus.textContent = `${sourceName}.pdf - ${pageCount} paginas. 0 selecionadas para remover.`;
+    }
+
+    function selectPage(pageNumber, event) {
+      if (event.ctrlKey || event.metaKey) {
+        const rangeAction = selectedPages.has(pageNumber) ? "deselect" : "select";
+        applyRange(pageNumber, rangeAction);
+        anchorAction = rangeAction;
+      } else {
+        anchorAction = togglePage(pageNumber);
+      }
+      anchorPage = pageNumber;
+      updateSelection();
+    }
+
+    function togglePage(pageNumber) {
+      if (selectedPages.has(pageNumber)) {
+        selectedPages.delete(pageNumber);
+        return "deselect";
+      } else {
+        selectedPages.add(pageNumber);
+        return "select";
+      }
+    }
+
+    function applyRange(pageNumber, action) {
+      if (!anchorPage) {
+        applyPageAction(pageNumber, action);
+        return;
+      }
+
+      const start = Math.min(anchorPage, pageNumber);
+      const end = Math.max(anchorPage, pageNumber);
+
+      for (let page = start; page <= end; page += 1) {
+        applyPageAction(page, action);
+      }
+    }
+
+    function applyPageAction(pageNumber, action) {
+      if (action === "deselect") {
+        selectedPages.delete(pageNumber);
+      } else {
+        selectedPages.add(pageNumber);
+      }
+    }
+
+    function updateSelection() {
+      document.querySelectorAll(".page").forEach((pageButton) => {
+        const pageNumber = Number(pageButton.dataset.page);
+        const selected = selectedPages.has(pageNumber);
+        pageButton.classList.toggle("selected", selected);
+        pageButton.setAttribute("aria-pressed", String(selected));
+        pageButton.querySelector(".badge").textContent = selected ? "Sai" : "Fica";
+      });
+
+      const selectedCount = selectedPages.size;
+      const remainingCount = Math.max(pageCount - selectedCount, 0);
+      fileStatus.textContent = sourceBytes
+        ? `${sourceName}.pdf - ${selectedCount} para remover, ${remainingCount} ficam.`
+        : "Nenhum PDF aberto.";
+      clearButton.disabled = selectedCount === 0;
+      clearDocumentButton.disabled = !sourceBytes;
+      downloadButton.disabled = !sourceBytes || selectedCount === 0 || selectedCount === pageCount;
+    }
+
+    function parsePageList(value, maxPage) {
+      const pages = new Set();
+      const chunks = value.split(",").map((part) => part.trim()).filter(Boolean);
+
+      if (chunks.length === 0) {
+        return { ok: true, pages };
+      }
+
+      for (const chunk of chunks) {
+        const rangeMatch = chunk.match(/^(\d+)\s*-\s*(\d+)$/);
+        const numberMatch = chunk.match(/^\d+$/);
+
+        if (rangeMatch) {
+          const start = Number(rangeMatch[1]);
+          const end = Number(rangeMatch[2]);
+          if (start > end) return { ok: false, message: `Intervalo invalido: ${chunk}` };
+          if (!isValidPage(start, maxPage) || !isValidPage(end, maxPage)) {
+            return { ok: false, message: `Pagina fora do limite: ${chunk}` };
+          }
+          for (let page = start; page <= end; page += 1) pages.add(page);
+        } else if (numberMatch) {
+          const page = Number(chunk);
+          if (!isValidPage(page, maxPage)) return { ok: false, message: `Pagina fora do limite: ${chunk}` };
+          pages.add(page);
+        } else {
+          return { ok: false, message: `Nao entendi: ${chunk}` };
+        }
+      }
+
+      return { ok: true, pages };
+    }
+
+    function isValidPage(page, maxPage) {
+      return Number.isInteger(page) && page >= 1 && page <= maxPage;
+    }
+
+    function setControls(enabled) {
+      clearButton.disabled = true;
+      clearDocumentButton.disabled = !enabled;
+      downloadButton.disabled = true;
+      pagesText.disabled = !enabled;
+      applyPagesButton.disabled = !enabled;
+      ocrCheckbox.disabled = !enabled;
+      compressCheckbox.disabled = !enabled;
+      compressLevel.disabled = true;
+    }
+
+    function reset() {
+      sourceBytes = null;
+      sourceName = "pdf";
+      pageCount = 0;
+      selectedPages.clear();
+      anchorPage = null;
+      anchorAction = "select";
+      pagesGrid.replaceChildren();
+      pagesGrid.hidden = true;
+      emptyState.hidden = false;
+      pagesText.value = "";
+      ocrCheckbox.checked = false;
+      compressCheckbox.checked = false;
+      compressLevel.value = "medium";
+      setControls(false);
+      fileStatus.textContent = "Nenhum PDF aberto.";
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 2600);
+    }
+  </script>
+</body>
+</html>
