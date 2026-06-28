@@ -170,16 +170,33 @@
       font-size: 14px;
     }
 
-    #fileStatus {
+    .status-text {
+      display: grid;
+      gap: 8px;
+    }
+
+    #fileStatus,
+    #sizeStatus {
       display: inline-flex;
       align-items: center;
-      min-height: 36px;
       border-left: 4px solid var(--accent);
       border-radius: 6px;
       background: #f8fafc;
       color: var(--ink);
       padding: 8px 12px;
       font-weight: 800;
+    }
+
+    #fileStatus {
+      min-height: 36px;
+    }
+
+    #sizeStatus {
+      min-height: 34px;
+      border-left-color: #64748b;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
     }
 
     .page-input {
@@ -460,7 +477,10 @@
 
   <main id="main">
     <section class="status" aria-live="polite">
-      <div id="fileStatus">Nenhum PDF aberto.</div>
+      <div class="status-text">
+        <div id="fileStatus">Nenhum PDF aberto.</div>
+        <div id="sizeStatus">Tamanhos: aguardando PDF.</div>
+      </div>
       <div class="page-input">
         <label for="pagesText">Selecionar por numero:</label>
         <input id="pagesText" type="text" placeholder="Ex: 1, 3-5, 8" disabled>
@@ -513,6 +533,7 @@
     const compressLevel = document.querySelector("#compressLevel");
     const pagesText = document.querySelector("#pagesText");
     const fileStatus = document.querySelector("#fileStatus");
+    const sizeStatus = document.querySelector("#sizeStatus");
     const emptyState = document.querySelector("#emptyState");
     const pagesGrid = document.querySelector("#pagesGrid");
     const toast = document.querySelector("#toast");
@@ -563,6 +584,7 @@
         reset();
         sourceName = file.name.replace(/\.pdf$/i, "");
         sourceBytes = await file.arrayBuffer();
+        updateSizeStatus({ original: sourceBytes.byteLength });
         fileStatus.textContent = "Carregando paginas...";
         await renderPdf(sourceBytes);
         setControls(true);
@@ -622,6 +644,7 @@
       const useCompression = compressCheckbox.checked;
       const compressionLevel = compressLevel.value;
       const nextSourceName = `${sourceName}-restante`;
+      const originalSize = sourceBytes.byteLength;
 
       try {
         const saveTarget = await requestSaveTarget(`${nextSourceName}.pdf`);
@@ -629,9 +652,20 @@
         const remainingIndexes = Array.from({ length: pageCount }, (_, index) => index)
           .filter((index) => !selectedPages.has(index + 1));
         const remainingPageNumbers = remainingIndexes.map((index) => index + 1);
-        const outputPdf = useCompression
-          ? await buildCompressedPdf(remainingPageNumbers, compressionLevel)
-          : await buildCopiedPdf(inputPdf, remainingIndexes);
+        fileStatus.textContent = "Gerando PDF restante...";
+        const remainingPdf = await buildCopiedPdf(inputPdf, remainingIndexes);
+        const remainingBytes = await remainingPdf.save();
+        updateSizeStatus({
+          original: originalSize,
+          remaining: remainingBytes.byteLength,
+        });
+
+        let outputPdf = remainingPdf;
+
+        if (useCompression) {
+          fileStatus.textContent = "Comprimindo PDF restante...";
+          outputPdf = await buildCompressedPdf(remainingPageNumbers, compressionLevel);
+        }
 
         if (useOcr) {
           downloadButton.textContent = "Aplicando OCR...";
@@ -656,9 +690,14 @@
           showToast("OCR deu erro ao salvar. Salvando PDF restante sem OCR.");
           const fallbackPdf = useCompression
             ? await buildCompressedPdf(remainingPageNumbers, compressionLevel)
-            : await buildCopiedPdf(inputPdf, remainingIndexes);
+            : await PDFLib.PDFDocument.load(remainingBytes);
           outputBytes = await fallbackPdf.save();
         }
+        updateSizeStatus({
+          original: originalSize,
+          remaining: remainingBytes.byteLength,
+          compressed: useCompression ? outputBytes.byteLength : null,
+        });
 
         const blob = new Blob([outputBytes], { type: "application/pdf" });
         await savePdf(blob, saveTarget);
@@ -1080,6 +1119,35 @@
       compressLevel.value = "medium";
       setControls(false);
       fileStatus.textContent = "Nenhum PDF aberto.";
+      sizeStatus.textContent = "Tamanhos: aguardando PDF.";
+    }
+
+    function updateSizeStatus({ original = null, remaining = null, compressed = null } = {}) {
+      const parts = [];
+
+      if (original !== null) parts.push(`Antes: ${formatFileSize(original)}`);
+      if (remaining !== null) parts.push(`Restante: ${formatFileSize(remaining)}`);
+      if (compressed !== null) parts.push(`Comprimido: ${formatFileSize(compressed)}`);
+
+      sizeStatus.textContent = parts.length
+        ? `Tamanhos: ${parts.join(" | ")}`
+        : "Tamanhos: aguardando PDF.";
+    }
+
+    function formatFileSize(bytes) {
+      if (!Number.isFinite(bytes) || bytes < 0) return "-";
+      if (bytes < 1024) return `${bytes} B`;
+
+      const units = ["KB", "MB", "GB"];
+      let value = bytes / 1024;
+      let unitIndex = 0;
+
+      while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+      }
+
+      return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
     }
 
     function showToast(message) {
