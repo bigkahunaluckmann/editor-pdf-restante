@@ -294,6 +294,116 @@
       box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.28), 0 8px 18px rgba(15, 118, 110, 0.12);
     }
 
+    .merge-panel {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: var(--shadow);
+      padding: 12px;
+    }
+
+    .merge-panel[hidden] {
+      display: none;
+    }
+
+    .merge-panel header {
+      position: static;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      border: 0;
+      background: transparent;
+      backdrop-filter: none;
+    }
+
+    .merge-panel header::before {
+      display: none;
+    }
+
+    .merge-title {
+      display: grid;
+      gap: 2px;
+    }
+
+    .merge-title strong {
+      color: var(--ink);
+      font-size: 15px;
+    }
+
+    .merge-title span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .merge-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .merge-item {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 8px;
+    }
+
+    .merge-item[draggable="true"] {
+      cursor: grab;
+    }
+
+    .merge-item.dragging {
+      border-color: var(--accent);
+      box-shadow: 0 14px 32px rgba(15, 118, 110, 0.18);
+      opacity: 0.62;
+    }
+
+    .merge-item.drag-over {
+      border-color: var(--accent-strong);
+      background: #eefcf8;
+    }
+
+    .merge-file {
+      min-width: 0;
+    }
+
+    .merge-file strong,
+    .merge-file span {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+
+    .merge-file span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .merge-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .merge-controls button {
+      min-height: 32px;
+      padding: 6px 9px;
+      font-size: 13px;
+    }
+
     .empty {
       display: grid;
       min-height: 18vh;
@@ -468,6 +578,8 @@
       <div class="actions">
         <label class="file-button" for="fileInput">Abrir PDF</label>
         <input id="fileInput" type="file" accept="application/pdf">
+        <label class="file-button" for="mergeInput">Selecionar PDFs para unificar</label>
+        <input id="mergeInput" type="file" accept="application/pdf" multiple>
         <button id="clearButton" type="button" disabled>Limpar selecao</button>
         <button id="clearDocumentButton" type="button" disabled>Limpar documento</button>
         <button id="downloadButton" class="primary" type="button" disabled>Salvar PDF restante</button>
@@ -486,16 +598,35 @@
         <input id="pagesText" type="text" placeholder="Ex: 1, 3-5, 8" disabled>
         <button id="applyPagesButton" type="button" disabled>Aplicar</button>
         <div class="finish-options">
-          <label class="option finish-option" title="Deixa o PDF final pesquisavel. Pode demorar em documentos grandes.">
+          <label class="option finish-option" title="Deixa o PDF final pesquisavel. Paginas que ja tem texto/OCR sao preservadas sem novo OCR.">
             <input id="ocrCheckbox" type="checkbox" disabled>
             <strong>Aplicar OCR no restante</strong>
           </label>
           <label class="option finish-option" title="Tenta reduzir o PDF restante preservando o conteudo original. Se ficar maior, salva a versao menor.">
             <input id="compressCheckbox" type="checkbox" disabled>
-            <strong>Otimizar tamanho</strong>
+            <strong>Comprimir</strong>
+            <select id="compressLevel" disabled aria-label="Nivel de compressao">
+              <option value="light">Leve</option>
+              <option value="medium" selected>Media</option>
+              <option value="strong">Forte</option>
+            </select>
           </label>
         </div>
       </div>
+    </section>
+
+    <section id="mergePanel" class="merge-panel" aria-live="polite" hidden>
+      <header>
+        <div class="merge-title">
+          <strong>Unificar PDFs</strong>
+          <span id="mergeStatus">Nenhum PDF selecionado.</span>
+        </div>
+        <div class="actions">
+          <button id="clearMergeButton" type="button" disabled>Limpar fila</button>
+          <button id="mergeButton" class="primary" type="button" disabled>Unificar PDFs</button>
+        </div>
+      </header>
+      <ol id="mergeList" class="merge-list"></ol>
     </section>
 
     <section id="emptyState" class="empty">
@@ -519,15 +650,22 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = "./assets/pdf.worker.min.mjs";
 
     const fileInput = document.querySelector("#fileInput");
+    const mergeInput = document.querySelector("#mergeInput");
     const clearButton = document.querySelector("#clearButton");
     const clearDocumentButton = document.querySelector("#clearDocumentButton");
     const downloadButton = document.querySelector("#downloadButton");
+    const mergeButton = document.querySelector("#mergeButton");
+    const clearMergeButton = document.querySelector("#clearMergeButton");
     const applyPagesButton = document.querySelector("#applyPagesButton");
     const ocrCheckbox = document.querySelector("#ocrCheckbox");
     const compressCheckbox = document.querySelector("#compressCheckbox");
+    const compressLevel = document.querySelector("#compressLevel");
     const pagesText = document.querySelector("#pagesText");
     const fileStatus = document.querySelector("#fileStatus");
     const sizeStatus = document.querySelector("#sizeStatus");
+    const mergePanel = document.querySelector("#mergePanel");
+    const mergeList = document.querySelector("#mergeList");
+    const mergeStatus = document.querySelector("#mergeStatus");
     const emptyState = document.querySelector("#emptyState");
     const pagesGrid = document.querySelector("#pagesGrid");
     const toast = document.querySelector("#toast");
@@ -536,6 +674,8 @@
     let sourceName = "pdf";
     let pageCount = 0;
     let selectedPages = new Set();
+    let mergeFiles = [];
+    let draggedMergeIndex = null;
     let anchorPage = null;
     let anchorAction = "select";
 
@@ -544,6 +684,14 @@
       if (!file) return;
 
       await loadPdfFile(file);
+    });
+
+    mergeInput.addEventListener("change", async (event) => {
+      const files = Array.from(event.target.files || []);
+      if (files.length === 0) return;
+
+      await addMergeFiles(files);
+      mergeInput.value = "";
     });
 
     emptyState.addEventListener("click", () => {
@@ -602,6 +750,11 @@
       showToast("Documento limpo.");
     });
 
+    clearMergeButton.addEventListener("click", () => {
+      clearMergeQueue();
+      showToast("Fila de unificacao limpa.");
+    });
+
     applyPagesButton.addEventListener("click", () => {
       const parsed = parsePageList(pagesText.value, pageCount);
       if (!parsed.ok) {
@@ -612,6 +765,115 @@
       selectedPages = parsed.pages;
       updateSelection();
       showToast("Paginas selecionadas.");
+    });
+
+    compressCheckbox.addEventListener("change", () => {
+      compressLevel.disabled = !compressCheckbox.checked || compressCheckbox.disabled;
+    });
+
+    mergeList.addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+
+      const index = Number(button.closest(".merge-item")?.dataset.index);
+      if (!Number.isInteger(index)) return;
+
+      if (button.dataset.action === "up") moveMergeFile(index, index - 1);
+      if (button.dataset.action === "down") moveMergeFile(index, index + 1);
+      if (button.dataset.action === "remove") removeMergeFile(index);
+    });
+
+    mergeList.addEventListener("dragstart", (event) => {
+      const item = event.target.closest(".merge-item");
+      if (!item) return;
+
+      draggedMergeIndex = Number(item.dataset.index);
+      item.classList.add("dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", item.dataset.index);
+    });
+
+    mergeList.addEventListener("dragover", (event) => {
+      const item = event.target.closest(".merge-item");
+      if (!item || draggedMergeIndex === null) return;
+
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      mergeList.querySelectorAll(".merge-item.drag-over").forEach((node) => {
+        if (node !== item) node.classList.remove("drag-over");
+      });
+      item.classList.add("drag-over");
+    });
+
+    mergeList.addEventListener("dragleave", (event) => {
+      const item = event.target.closest(".merge-item");
+      if (!item || item.contains(event.relatedTarget)) return;
+      item.classList.remove("drag-over");
+    });
+
+    mergeList.addEventListener("drop", (event) => {
+      const item = event.target.closest(".merge-item");
+      if (!item || draggedMergeIndex === null) return;
+
+      event.preventDefault();
+      const targetIndex = Number(item.dataset.index);
+      moveMergeFile(draggedMergeIndex, targetIndex);
+      draggedMergeIndex = null;
+    });
+
+    mergeList.addEventListener("dragend", () => {
+      draggedMergeIndex = null;
+      mergeList.querySelectorAll(".merge-item.dragging, .merge-item.drag-over").forEach((item) => {
+        item.classList.remove("dragging", "drag-over");
+      });
+    });
+
+    mergeButton.addEventListener("click", async () => {
+      if (mergeFiles.length < 2) {
+        showToast("Selecione pelo menos dois PDFs para unificar.");
+        return;
+      }
+
+      setMergeBusy(true);
+      fileStatus.textContent = "Unificando PDFs...";
+      const originalSize = mergeFiles.reduce((sum, item) => sum + item.size, 0);
+
+      try {
+        const saveTarget = await requestSaveTarget("pdf-unificado.pdf");
+        const outputPdf = await PDFLib.PDFDocument.create();
+        let totalPages = 0;
+
+        for (let index = 0; index < mergeFiles.length; index += 1) {
+          const item = mergeFiles[index];
+          fileStatus.textContent = `Unificando ${index + 1}/${mergeFiles.length}: ${item.name}`;
+          const inputPdf = await PDFLib.PDFDocument.load(item.bytes);
+          const pageIndexes = inputPdf.getPageIndices();
+          const copiedPages = await outputPdf.copyPages(inputPdf, pageIndexes);
+
+          for (const page of copiedPages) {
+            outputPdf.addPage(page);
+          }
+
+          totalPages += copiedPages.length;
+        }
+
+        const outputBytes = await outputPdf.save();
+        updateSizeStatus({ original: originalSize, merged: outputBytes.byteLength });
+        const blob = new Blob([outputBytes], { type: "application/pdf" });
+        await savePdf(blob, saveTarget);
+        await loadGeneratedPdf(outputBytes, "pdf-unificado");
+        showToast(`PDF unificado com ${totalPages} pagina(s).`);
+      } catch (error) {
+        if (error.name === "AbortError") {
+          showToast("Unificacao cancelada.");
+          return;
+        }
+        console.error(error);
+        showToast("Erro ao unificar PDFs.");
+      } finally {
+        setMergeBusy(false);
+        updateMergeList();
+      }
     });
 
     downloadButton.addEventListener("click", async () => {
@@ -628,9 +890,11 @@
       downloadButton.disabled = true;
       ocrCheckbox.disabled = true;
       compressCheckbox.disabled = true;
+      compressLevel.disabled = true;
       downloadButton.textContent = "Gerando...";
       const useOcr = ocrCheckbox.checked;
       const useCompression = compressCheckbox.checked;
+      const compressionLevel = compressLevel.value;
       const nextSourceName = `${sourceName}-restante`;
       const originalSize = sourceBytes.byteLength;
 
@@ -656,6 +920,10 @@
             const ocrStats = await applyOcrToPdf(outputPdf, remainingPageNumbers);
             if (ocrStats.failedPages > 0) {
               showToast(`PDF salvo com OCR parcial. ${ocrStats.failedPages} pagina(s) falharam.`);
+            } else if (ocrStats.skippedPages > 0 && ocrStats.processedPages === 0) {
+              showToast("As paginas restantes ja tinham OCR/texto. Nada foi reprocessado.");
+            } else if (ocrStats.skippedPages > 0) {
+              showToast(`OCR aplicado. ${ocrStats.skippedPages} pagina(s) ja tinham texto.`);
             }
           } catch (error) {
             console.error("OCR falhou, salvando PDF restante sem OCR:", error);
@@ -677,7 +945,7 @@
 
         if (useCompression) {
           fileStatus.textContent = "Otimizando PDF restante...";
-          const optimizedBytes = await optimizePdfBytes(outputBytes);
+          const optimizedBytes = await optimizePdfBytes(outputBytes, compressionLevel);
           if (optimizedBytes.byteLength <= outputBytes.byteLength) {
             outputBytes = optimizedBytes;
           } else {
@@ -706,6 +974,7 @@
         updateSelection();
         ocrCheckbox.disabled = false;
         compressCheckbox.disabled = false;
+        compressLevel.disabled = !compressCheckbox.checked;
       }
     });
 
@@ -720,12 +989,140 @@
       return outputPdf;
     }
 
-    async function optimizePdfBytes(bytes) {
+    async function optimizePdfBytes(bytes, level) {
       const pdf = await PDFLib.PDFDocument.load(bytes);
+      const settings = getOptimizationSettings(level);
       return pdf.save({
         addDefaultPage: false,
-        objectsPerTick: 50,
+        objectsPerTick: settings.objectsPerTick,
         useObjectStreams: true,
+      });
+    }
+
+    function getOptimizationSettings(level) {
+      const levels = {
+        light: { objectsPerTick: 25 },
+        medium: { objectsPerTick: 50 },
+        strong: { objectsPerTick: 100 },
+      };
+
+      return levels[level] || levels.medium;
+    }
+
+    async function addMergeFiles(files) {
+      const pdfFiles = files.filter((file) => file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"));
+
+      if (pdfFiles.length === 0) {
+        showToast("Selecione arquivos PDF para unificar.");
+        return;
+      }
+
+      mergePanel.hidden = false;
+      setMergeBusy(true);
+
+      try {
+        for (const file of pdfFiles) {
+          mergeStatus.textContent = `Carregando ${file.name}...`;
+          const bytes = await file.arrayBuffer();
+          const pdf = await PDFLib.PDFDocument.load(bytes);
+
+          mergeFiles.push({
+            bytes,
+            name: file.name,
+            pageCount: pdf.getPageCount(),
+            size: bytes.byteLength,
+          });
+        }
+
+        showToast(`${pdfFiles.length} PDF(s) adicionados para unificar.`);
+      } catch (error) {
+        console.error(error);
+        showToast("Nao foi possivel adicionar um dos PDFs.");
+      } finally {
+        setMergeBusy(false);
+        updateMergeList();
+      }
+    }
+
+    function updateMergeList() {
+      mergePanel.hidden = mergeFiles.length === 0;
+      mergeList.replaceChildren();
+
+      mergeFiles.forEach((item, index) => {
+        const li = document.createElement("li");
+        const fileInfo = document.createElement("div");
+        const title = document.createElement("strong");
+        const details = document.createElement("span");
+        const controls = document.createElement("div");
+        const upButton = document.createElement("button");
+        const downButton = document.createElement("button");
+        const removeButton = document.createElement("button");
+
+        li.className = "merge-item";
+        li.dataset.index = String(index);
+        li.draggable = true;
+        li.title = "Arraste para mudar a ordem";
+        fileInfo.className = "merge-file";
+        controls.className = "merge-controls";
+
+        title.textContent = `${index + 1}. ${item.name}`;
+        details.textContent = `${item.pageCount} pagina(s) - ${formatFileSize(item.size)}`;
+        fileInfo.append(title, details);
+
+        upButton.type = "button";
+        upButton.dataset.action = "up";
+        upButton.textContent = "Subir";
+        upButton.disabled = index === 0;
+
+        downButton.type = "button";
+        downButton.dataset.action = "down";
+        downButton.textContent = "Descer";
+        downButton.disabled = index === mergeFiles.length - 1;
+
+        removeButton.type = "button";
+        removeButton.dataset.action = "remove";
+        removeButton.textContent = "Remover";
+
+        controls.append(upButton, downButton, removeButton);
+        li.append(fileInfo, controls);
+        mergeList.appendChild(li);
+      });
+
+      const totalPages = mergeFiles.reduce((sum, item) => sum + item.pageCount, 0);
+      const totalSize = mergeFiles.reduce((sum, item) => sum + item.size, 0);
+      mergeStatus.textContent = mergeFiles.length
+        ? `${mergeFiles.length} PDF(s), ${totalPages} pagina(s), ${formatFileSize(totalSize)}. Ajuste a ordem antes de unificar.`
+        : "Nenhum PDF selecionado.";
+      mergeButton.disabled = mergeFiles.length < 2;
+      clearMergeButton.disabled = mergeFiles.length === 0;
+    }
+
+    function moveMergeFile(fromIndex, toIndex) {
+      if (toIndex < 0 || toIndex >= mergeFiles.length) return;
+
+      const [item] = mergeFiles.splice(fromIndex, 1);
+      mergeFiles.splice(toIndex, 0, item);
+      updateMergeList();
+    }
+
+    function removeMergeFile(index) {
+      mergeFiles.splice(index, 1);
+      updateMergeList();
+    }
+
+    function clearMergeQueue() {
+      mergeFiles = [];
+      mergeInput.value = "";
+      updateMergeList();
+    }
+
+    function setMergeBusy(isBusy) {
+      mergeInput.disabled = isBusy;
+      mergeButton.disabled = isBusy || mergeFiles.length < 2;
+      clearMergeButton.disabled = isBusy || mergeFiles.length === 0;
+
+      mergeList.querySelectorAll("button").forEach((button) => {
+        button.disabled = isBusy || button.disabled;
       });
     }
 
@@ -770,6 +1167,7 @@
       pagesText.value = "";
       ocrCheckbox.checked = false;
       compressCheckbox.checked = false;
+      compressLevel.value = "medium";
       pagesGrid.replaceChildren();
       pagesGrid.hidden = true;
       emptyState.hidden = false;
@@ -788,11 +1186,31 @@
 
       const pdf = await pdfjsLib.getDocument({ data: sourceBytes.slice(0) }).promise;
       const font = await outputPdf.embedFont(PDFLib.StandardFonts.Helvetica);
-      const stats = { processedPages: 0, failedPages: 0, insertedWords: 0 };
+      const stats = { processedPages: 0, skippedPages: 0, failedPages: 0, insertedWords: 0 };
+      const pagesNeedingOcr = [];
+
+      fileStatus.textContent = "Verificando paginas com texto pesquisavel...";
+      for (let index = 0; index < remainingPageNumbers.length; index += 1) {
+        const originalPageNumber = remainingPageNumbers[index];
+        const page = await pdf.getPage(originalPageNumber);
+        const hasText = await pageHasSearchableText(page);
+
+        if (hasText) {
+          stats.skippedPages += 1;
+        } else {
+          pagesNeedingOcr.push({ outputIndex: index, originalPageNumber });
+        }
+      }
+
+      if (pagesNeedingOcr.length === 0) {
+        fileStatus.textContent = "Todas as paginas restantes ja tem texto pesquisavel.";
+        return stats;
+      }
+
       const ocrProgress = {
         currentPage: 0,
-        totalPages: remainingPageNumbers.length,
-        pagesLeft: remainingPageNumbers.length,
+        totalPages: pagesNeedingOcr.length,
+        pagesLeft: pagesNeedingOcr.length,
       };
       const worker = await Tesseract.createWorker("por+eng", 1, {
         workerPath: "./assets/tesseract.worker.min.js",
@@ -807,17 +1225,17 @@
       });
 
       try {
-        for (let index = 0; index < remainingPageNumbers.length; index += 1) {
-          const originalPageNumber = remainingPageNumbers[index];
+        for (let index = 0; index < pagesNeedingOcr.length; index += 1) {
+          const { outputIndex, originalPageNumber } = pagesNeedingOcr[index];
           ocrProgress.currentPage = index + 1;
-          ocrProgress.pagesLeft = remainingPageNumbers.length - index - 1;
+          ocrProgress.pagesLeft = pagesNeedingOcr.length - index - 1;
           fileStatus.textContent = formatOcrStatus(ocrProgress);
 
           try {
             const page = await pdf.getPage(originalPageNumber);
             const canvas = await renderPageToCanvas(page, 2);
             const result = await worker.recognize(canvas);
-            const insertedWords = addInvisibleTextLayer(outputPdf.getPage(index), result.data.words || [], canvas, font);
+            const insertedWords = addInvisibleTextLayer(outputPdf.getPage(outputIndex), result.data.words || [], canvas, font);
             stats.processedPages += 1;
             stats.insertedWords += insertedWords;
             canvas.width = 0;
@@ -832,6 +1250,17 @@
       }
 
       return stats;
+    }
+
+    async function pageHasSearchableText(page) {
+      const textContent = await page.getTextContent();
+      const text = textContent.items
+        .map((item) => item.str || "")
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      return text.length >= 12;
     }
 
     async function renderPageToCanvas(page, scale) {
@@ -1047,6 +1476,7 @@
       applyPagesButton.disabled = !enabled;
       ocrCheckbox.disabled = !enabled;
       compressCheckbox.disabled = !enabled;
+      compressLevel.disabled = true;
     }
 
     function reset() {
@@ -1062,17 +1492,19 @@
       pagesText.value = "";
       ocrCheckbox.checked = false;
       compressCheckbox.checked = false;
+      compressLevel.value = "medium";
       setControls(false);
       fileStatus.textContent = "Nenhum PDF aberto.";
       sizeStatus.textContent = "Tamanhos: aguardando PDF.";
     }
 
-    function updateSizeStatus({ original = null, remaining = null, compressed = null } = {}) {
+    function updateSizeStatus({ original = null, remaining = null, compressed = null, merged = null } = {}) {
       const parts = [];
 
       if (original !== null) parts.push(`Antes: ${formatFileSize(original)}`);
       if (remaining !== null) parts.push(`Restante: ${formatFileSize(remaining)}`);
       if (compressed !== null) parts.push(`Comprimido: ${formatFileSize(compressed)}`);
+      if (merged !== null) parts.push(`Unificado: ${formatFileSize(merged)}`);
 
       sizeStatus.textContent = parts.length
         ? `Tamanhos: ${parts.join(" | ")}`
