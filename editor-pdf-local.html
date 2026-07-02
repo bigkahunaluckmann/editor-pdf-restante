@@ -582,6 +582,7 @@
         <input id="mergeInput" type="file" accept="application/pdf" multiple>
         <button id="clearButton" type="button" disabled>Limpar selecao</button>
         <button id="clearDocumentButton" type="button" disabled>Limpar documento</button>
+        <button id="ocrOnlyButton" type="button" disabled>Aplicar OCR no PDF</button>
         <button id="downloadButton" class="primary" type="button" disabled>Salvar PDF restante</button>
       </div>
     </div>
@@ -653,6 +654,7 @@
     const mergeInput = document.querySelector("#mergeInput");
     const clearButton = document.querySelector("#clearButton");
     const clearDocumentButton = document.querySelector("#clearDocumentButton");
+    const ocrOnlyButton = document.querySelector("#ocrOnlyButton");
     const downloadButton = document.querySelector("#downloadButton");
     const mergeButton = document.querySelector("#mergeButton");
     const clearMergeButton = document.querySelector("#clearMergeButton");
@@ -860,7 +862,7 @@
         const outputBytes = await outputPdf.save();
         updateSizeStatus({ original: originalSize, merged: outputBytes.byteLength });
         const blob = new Blob([outputBytes], { type: "application/pdf" });
-        await savePdf(blob, saveTarget);
+        await savePdf(blob, saveTarget, "PDF unificado salvo.");
         await loadGeneratedPdf(outputBytes, "pdf-unificado");
         showToast(`PDF unificado com ${totalPages} pagina(s).`);
       } catch (error) {
@@ -873,6 +875,47 @@
       } finally {
         setMergeBusy(false);
         updateMergeList();
+      }
+    });
+
+    ocrOnlyButton.addEventListener("click", async () => {
+      if (!sourceBytes || pageCount === 0) return;
+
+      setDocumentBusy(true, "Aplicando OCR...");
+      const nextSourceName = `${sourceName}-ocr`;
+      const originalSize = sourceBytes.byteLength;
+
+      try {
+        const saveTarget = await requestSaveTarget(`${nextSourceName}.pdf`);
+        const inputPdf = await PDFLib.PDFDocument.load(sourceBytes);
+        const allIndexes = inputPdf.getPageIndices();
+        const allPageNumbers = allIndexes.map((index) => index + 1);
+        fileStatus.textContent = "Preparando PDF para OCR...";
+        const outputPdf = await buildCopiedPdf(inputPdf, allIndexes);
+
+        try {
+          const ocrStats = await applyOcrToPdf(outputPdf, allPageNumbers);
+          showOcrStats(ocrStats);
+        } catch (error) {
+          console.error("OCR falhou, salvando PDF sem novo OCR:", error);
+          showToast("OCR falhou. Vou salvar o PDF sem novo OCR.");
+        }
+
+        const outputBytes = await outputPdf.save();
+        updateSizeStatus({ original: originalSize, ocr: outputBytes.byteLength });
+        const blob = new Blob([outputBytes], { type: "application/pdf" });
+        await savePdf(blob, saveTarget, "PDF com OCR salvo.");
+        await loadGeneratedPdf(outputBytes, nextSourceName);
+      } catch (error) {
+        if (error.name === "AbortError") {
+          showToast("OCR cancelado.");
+          return;
+        }
+        console.error(error);
+        showToast("Erro ao aplicar OCR no PDF.");
+      } finally {
+        setDocumentBusy(false);
+        updateSelection();
       }
     });
 
@@ -918,13 +961,7 @@
           downloadButton.textContent = "Aplicando OCR...";
           try {
             const ocrStats = await applyOcrToPdf(outputPdf, remainingPageNumbers);
-            if (ocrStats.failedPages > 0) {
-              showToast(`PDF salvo com OCR parcial. ${ocrStats.failedPages} pagina(s) falharam.`);
-            } else if (ocrStats.skippedPages > 0 && ocrStats.processedPages === 0) {
-              showToast("As paginas restantes ja tinham OCR/texto. Nada foi reprocessado.");
-            } else if (ocrStats.skippedPages > 0) {
-              showToast(`OCR aplicado. ${ocrStats.skippedPages} pagina(s) ja tinham texto.`);
-            }
+            showOcrStats(ocrStats);
           } catch (error) {
             console.error("OCR falhou, salvando PDF restante sem OCR:", error);
             showToast("OCR falhou. Vou salvar o PDF restante sem OCR.");
@@ -1126,6 +1163,20 @@
       });
     }
 
+    function setDocumentBusy(isBusy, downloadText = "Gerando...") {
+      fileInput.disabled = isBusy;
+      clearButton.disabled = isBusy || selectedPages.size === 0;
+      clearDocumentButton.disabled = isBusy || !sourceBytes;
+      ocrOnlyButton.disabled = isBusy || !sourceBytes;
+      downloadButton.disabled = isBusy || !sourceBytes || selectedPages.size === 0 || selectedPages.size === pageCount;
+      applyPagesButton.disabled = isBusy || !sourceBytes;
+      pagesText.disabled = isBusy || !sourceBytes;
+      ocrCheckbox.disabled = isBusy || !sourceBytes;
+      compressCheckbox.disabled = isBusy || !sourceBytes;
+      compressLevel.disabled = isBusy || !compressCheckbox.checked || compressCheckbox.disabled;
+      downloadButton.textContent = isBusy ? downloadText : "Salvar PDF restante";
+    }
+
     async function requestSaveTarget(suggestedName) {
       if ("showSaveFilePicker" in window) {
         const handle = await window.showSaveFilePicker({
@@ -1141,12 +1192,12 @@
       return { suggestedName, type: "download" };
     }
 
-    async function savePdf(blob, target) {
+    async function savePdf(blob, target, successMessage = "PDF restante salvo.") {
       if (target.type === "picker") {
         const writable = await target.handle.createWritable();
         await writable.write(blob);
         await writable.close();
-        showToast("PDF restante salvo.");
+        showToast(successMessage);
         return;
       }
 
@@ -1250,6 +1301,18 @@
       }
 
       return stats;
+    }
+
+    function showOcrStats(ocrStats) {
+      if (ocrStats.failedPages > 0) {
+        showToast(`PDF salvo com OCR parcial. ${ocrStats.failedPages} pagina(s) falharam.`);
+      } else if (ocrStats.skippedPages > 0 && ocrStats.processedPages === 0) {
+        showToast("As paginas ja tinham OCR/texto. Nada foi reprocessado.");
+      } else if (ocrStats.skippedPages > 0) {
+        showToast(`OCR aplicado. ${ocrStats.skippedPages} pagina(s) ja tinham texto.`);
+      } else {
+        showToast("OCR aplicado no PDF.");
+      }
     }
 
     async function pageHasSearchableText(page) {
@@ -1429,6 +1492,7 @@
         : "Nenhum PDF aberto.";
       clearButton.disabled = selectedCount === 0;
       clearDocumentButton.disabled = !sourceBytes;
+      ocrOnlyButton.disabled = !sourceBytes;
       downloadButton.disabled = !sourceBytes || selectedCount === 0 || selectedCount === pageCount;
     }
 
@@ -1474,6 +1538,7 @@
       downloadButton.disabled = true;
       pagesText.disabled = !enabled;
       applyPagesButton.disabled = !enabled;
+      ocrOnlyButton.disabled = !enabled;
       ocrCheckbox.disabled = !enabled;
       compressCheckbox.disabled = !enabled;
       compressLevel.disabled = true;
@@ -1498,13 +1563,14 @@
       sizeStatus.textContent = "Tamanhos: aguardando PDF.";
     }
 
-    function updateSizeStatus({ original = null, remaining = null, compressed = null, merged = null } = {}) {
+    function updateSizeStatus({ original = null, remaining = null, compressed = null, merged = null, ocr = null } = {}) {
       const parts = [];
 
       if (original !== null) parts.push(`Antes: ${formatFileSize(original)}`);
       if (remaining !== null) parts.push(`Restante: ${formatFileSize(remaining)}`);
       if (compressed !== null) parts.push(`Comprimido: ${formatFileSize(compressed)}`);
       if (merged !== null) parts.push(`Unificado: ${formatFileSize(merged)}`);
+      if (ocr !== null) parts.push(`Com OCR: ${formatFileSize(ocr)}`);
 
       sizeStatus.textContent = parts.length
         ? `Tamanhos: ${parts.join(" | ")}`
